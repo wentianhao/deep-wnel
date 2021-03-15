@@ -70,3 +70,10 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+
+def tokgreen(s):
+    return bcolors.OKGREEN + s + bcolors.ENDC
+
+if __name__ == '__main__':
+    tokgreen('2')

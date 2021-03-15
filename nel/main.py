@@ -1,3 +1,6 @@
+from nel.mulrel_ranker import MulRelRanker
+
+import nel.utils as utils
 
 import argparse
 
@@ -12,3 +15,47 @@ large_voca_emb_dir = 'D:/IDE/Python/EntityLinking/wnel-data/generated/embeddings
 
 if use_large:
     voca_emb_dir = large_voca_emb_dir
+
+
+ModelClass = MulRelRanker
+
+
+# general args
+parse.add_argument("--mode",type=str,
+                   help="train,eval,prerank,or ed",
+                   default="train")
+parse.add_argument("--model_path",type=str,
+                   help="model path to save/load",
+                   default="model")
+parse.add_argument("--filelist",type=str,
+                   help="filelist for ed (candidate filenames should be ended by .csv)",
+                   default=None)
+parse.add_argument("--preranked_date",type=str,
+                   help="filelist for ed (candidate filenames should be ended by .csv)",
+                   default=None)
+
+
+# args for preranking (i.e. 2-step candidate selection)
+parse.add_argument("--n_cands_before_rank",type=int,
+                   help="number of candidates",
+                   default=30)
+parse.add_argument("--prerank_ctx_window",type=int,
+                   help="size of context window for the preranking model",
+                   default=50)
+parse.add_argument("--keep_p_e_m",type=int,
+                   help="number of top candidates to keep w.r.t using context",
+                   default=4)
+parse.add_argument("--keep_ctx_ent",type=int,
+                   help="number of top candidates to keep w.r.t using context",
+                   default=3)
+
+
+# args for debugging
+parse.add_argument("--print_rel",action='store_true')
+parse.add_argument("--print_incorrect",action='store_true')
+
+
+if __name__ == "__main__":
+    print('create model')
+    word_voca,word_embeddings = utils
+
