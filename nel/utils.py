@@ -1,3 +1,4 @@
+from nel.vocabulary import Vocabulary
 import numpy as np
 import torch
 import numbers
@@ -75,5 +76,49 @@ class bcolors:
 def tokgreen(s):
     return bcolors.OKGREEN + s + bcolors.ENDC
 
+
+def tfail(s):
+    return bcolors.FAIL + s + bcolors.ENDC
+
+
+def tokblue(s):
+    return bcolors.OKBLUE + s + bcolors.ENDC
+
+
+################################ process list of lists #######################
+
+def flatten_list_of_lists(list_of_lists):
+    """
+    making inputs to torch.nn.EmbeddingBag
+    :param list_of_lists:
+    :return:
+    """
+    list_of_lists = [[]] + list_of_lists
+    """
+    numpy.cumsum(a, axis=None, dtype=None, out=None)
+    axis=0，按照行累加。
+    axis=1，按照列累加。
+    axis不给定具体值，就把numpy数组当成一个一维数组,从左到右累加。
+    """
+    offsets = np.cumsum([len(x) for x in list_of_lists])[:-1]
+    flatten = sum(list_of_lists[1:], [])
+    return flatten, offsets
+
+
+def load_voca_embs(voca_path, embs_path):
+    voca = Vocabulary.load(voca_path)
+    embs = np.load(embs_path)
+
+    # check if sizes are matched
+    if embs.shape[0] == voca.size() - 1:
+        unk_emb = np.mean(embs, axis=0, keepdims=True)
+        embs = np.append(embs, unk_emb, axis=0)
+    elif embs.shape[0] != voca.size():
+        print('embs.shape:', embs.shape, 'voca.size:', voca.size())
+        raise Exception("embeddings and vocabulary have different number of items")
+
+    return voca, embs
+
+
 if __name__ == '__main__':
-    tokgreen('2')
+    print(tokgreen('2'))
