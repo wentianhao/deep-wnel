@@ -1,3 +1,4 @@
+import nel.dataset as D
 from nel.mulrel_ranker import MulRelRanker
 from nel.ed_ranker import EDRanker
 import pickle
@@ -189,3 +190,4 @@ if __name__ == "__main__":
     ranker = EDRanker(config=config)
 
     if args.mode == 'prerank':
+        conll = D.CoNLLDataset(datadir, person_path, conll_path)

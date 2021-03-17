@@ -106,7 +106,7 @@ def read_conll_file(data, path, ner_path=None):
 
     # merge with data
     rmpunc = re.compile('[\W_]+')
-    for doc_name,content in data.items():
+    for doc_name, content in data.items():
         conll_doc = conll[doc_name.split()[0]]
         content[0]['conll_doc'] = conll_doc
 
@@ -118,31 +118,32 @@ def read_conll_file(data, path, ner_path=None):
             while True:
                 try:
                     cur_conll_m = conll_doc['mention'][cur_conll_m_id]
-                    cur_conll_mention = ' '.join(conll_doc['sentences'][cur_conll_m['sent_id']][cur_conll_m['start']:cur_conll_m['end']])
+                    cur_conll_mention = ' '.join(
+                        conll_doc['sentences'][cur_conll_m['sent_id']][cur_conll_m['start']:cur_conll_m['end']])
                 except:
                     print(doc_name)
                     pprint(m)
                     raise Exception('wrong!!!')
 
-                r_cm = rmpunc.sub('',cur_conll_mention.lower())
-                r_m = rmpunc.sub('',mention.lower())
+                r_cm = rmpunc.sub('', cur_conll_mention.lower())
+                r_m = rmpunc.sub('', mention.lower())
                 if r_cm == r_m or r_m.startswith(r_cm) or r_cm.startswith(r_m):
                     m['conll_m'] = cur_conll_m
                     cur_conll_m_id += 1
                     break
                 else:
-                    print('not match',cur_conll_mention,' ---- ',mention)
+                    print('not match', cur_conll_mention, ' ---- ', mention)
                     cur_conll_m_id += 1
     return data
 
 
-
 def load_person_names(path):
     data = []
-    with open(path,'r',encoding='utf8') as f:
+    with open(path, 'r', encoding='utf8') as f:
         for line in f:
-            data.append(line.strip().replace(' ','_'))
+            data.append(line.strip().replace(' ', '_'))
     return set(data)
+
 
 def find_coref(ment, ment_list, person_names):
     cur_m = ment['mention'].lower()
@@ -218,16 +219,17 @@ class CoNLLDataset:
         read_conll_file(self.wikipedia, conll_path + '/wned-datasets/wikipedia/wikipedia.conll')
 
     @staticmethod
-    def load_file(conll_path,cand_path,person_path):
+    def load_file(conll_path, cand_path, person_path):
         person_names = load_person_names(person_path)
 
         print('load candidates')
         data = read_csv_file(cand_path)
-        with_coref(data,person_names)
+        with_coref(data, person_names)
 
         print('load conll')
-        read_conll_file(data,conll_path)
+        read_conll_file(data, conll_path)
         return data
+
 
 if __name__ == "__main__":
     path = 'D:/download/wnel-data/generated/test_train_data/'
