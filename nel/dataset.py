@@ -105,7 +105,44 @@ def read_conll_file(data, path, ner_path=None):
             cur_sent = []
 
     # merge with data
+    rmpunc = re.compile('[\W_]+')
+    for doc_name,content in data.items():
+        conll_doc = conll[doc_name.split()[0]]
+        content[0]['conll_doc'] = conll_doc
 
+        cur_conll_m_id = 0
+        for m in content:
+            mention = m['mention']
+            # gold = m['gold]
+
+            while True:
+                try:
+                    cur_conll_m = conll_doc['mention'][cur_conll_m_id]
+                    cur_conll_mention = ' '.join(conll_doc['sentences'][cur_conll_m['sent_id']][cur_conll_m['start']:cur_conll_m['end']])
+                except:
+                    print(doc_name)
+                    pprint(m)
+                    raise Exception('wrong!!!')
+
+                r_cm = rmpunc.sub('',cur_conll_mention.lower())
+                r_m = rmpunc.sub('',mention.lower())
+                if r_cm == r_m or r_m.startswith(r_cm) or r_cm.startswith(r_m):
+                    m['conll_m'] = cur_conll_m
+                    cur_conll_m_id += 1
+                    break
+                else:
+                    print('not match',cur_conll_mention,' ---- ',mention)
+                    cur_conll_m_id += 1
+    return data
+
+
+
+def load_person_names(path):
+    data = []
+    with open(path,'r',encoding='utf8') as f:
+        for line in f:
+            data.append(line.strip().replace(' ','_'))
+    return set(data)
 
 def find_coref(ment, ment_list, person_names):
     cur_m = ment['mention'].lower()
@@ -158,6 +195,39 @@ class CoNLLDataset:
         self.wikipedia = read_csv_file(path + '/wned-wikipedia.csv')
         self.wikipedia.pop('Jiří_Třanovský Jiří_Třanovský', None)  # unknown problem with this
 
+        print('process coref')
+        person_names = load_person_names(person_path)
+        with_coref(self.train, person_names)
+        with_coref(self.testA, person_names)
+        with_coref(self.testB, person_names)
+        with_coref(self.ace2004, person_names)
+        with_coref(self.aquaint, person_names)
+        with_coref(self.clueweb, person_names)
+        with_coref(self.msnbc, person_names)
+        with_coref(self.wikipedia, person_names)
+
+        print('load conll')
+        read_conll_file(self.train, conll_path + '/AIDA/aida_train.txt')
+        read_conll_file(self.testA, conll_path + '/AIDA/testa_testb_aggregate_original',
+                        ner_path=conll_path + '/AIDA/testa.ner')
+        read_conll_file(self.testB, conll_path + '/AIDA/testa_testb_aggregate_original')
+        read_conll_file(self.ace2004, conll_path + '/wned-datasets/ace2004/ace2004.conll')
+        read_conll_file(self.aquaint, conll_path + '/wned-datasets/aquaint/aquaint.conll')
+        read_conll_file(self.msnbc, conll_path + '/wned-datasets/msnbc/msnbc.conll')
+        read_conll_file(self.clueweb, conll_path + '/wned-datasets/clueweb/clueweb.conll')
+        read_conll_file(self.wikipedia, conll_path + '/wned-datasets/wikipedia/wikipedia.conll')
+
+    @staticmethod
+    def load_file(conll_path,cand_path,person_path):
+        person_names = load_person_names(person_path)
+
+        print('load candidates')
+        data = read_csv_file(cand_path)
+        with_coref(data,person_names)
+
+        print('load conll')
+        read_conll_file(data,conll_path)
+        return data
 
 if __name__ == "__main__":
     path = 'D:/download/wnel-data/generated/test_train_data/'
