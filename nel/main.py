@@ -191,3 +191,4 @@ if __name__ == "__main__":
 
     if args.mode == 'prerank':
         conll = D.CoNLLDataset(datadir, person_path, conll_path)
+
