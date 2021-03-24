@@ -68,37 +68,37 @@ def read_conll_file(data, path, ner_path=None):
                     if not l1.startswith('-DOCSTART-'):
                         raise Exception('wrong')
                     l1 = fner.readline().strip()  # an empty line right after this
+            else:
+                if line == '':
+                    cur_doc['sentences'].append(cur_sent)
+                    cur_sent = []
+                    if l1 is not None:
+                        if l1 != '':
+                            raise Exception('wrong')
                 else:
-                    if line == '':
-                        cur_doc['sentences'].append(cur_sent)
-                        cur_sent = []
-                        if l1 is not None:
-                            if l1 != '':
-                                raise Exception('wrong')
-                    else:
-                        comps = line.split('\t')
-                        tok = comps[0]
-                        cur_sent.append(tok)
+                    comps = line.split('\t')
+                    tok = comps[0]
+                    cur_sent.append(tok)
 
-                        if len(comps) >= 6:
-                            bi = comps[1]
-                            wiki_link = comps[4]
-                            if bi == 'I':
-                                cur_doc['mention'][-1]['end'] += 1
-                                if l1 is not None:
-                                    tok, _, _, cat = l1.split()
-                                    if not cat.startswith('I'):
-                                        raise Exception('wrong')
-                            else:
-                                new_ment = {'sent_id': len(cur_doc['sentences']),
-                                            'start': len(cur_sent) - 1,
-                                            'end': len(cur_sent),
-                                            'wiki_link': wiki_link}
-                                if l1 is not None:
-                                    tok, _, _, cat = l1.split()
-                                    _, cat = cat.split('-')
-                                    new_ment['cat'] = cat
-                                cur_doc['mentions'].append(new_ment)
+                    if len(comps) >= 6:
+                        bi = comps[1]
+                        wiki_link = comps[4]
+                        if bi == 'I':
+                            cur_doc['mentions'][-1]['end'] += 1
+                            if l1 is not None:
+                                tok, _, _, cat = l1.split()
+                                if not cat.startswith('I'):
+                                    raise Exception('wrong')
+                        else:
+                            new_ment = {'sent_id': len(cur_doc['sentences']),
+                                        'start': len(cur_sent) - 1,
+                                        'end': len(cur_sent),
+                                        'wiki_link': wiki_link}
+                            if l1 is not None:
+                                tok, _, _, cat = l1.split()
+                                _, cat = cat.split('-')
+                                new_ment['cat'] = cat
+                            cur_doc['mentions'].append(new_ment)
         # the last sentence
         if len(cur_sent) > 0:
             cur_doc['sentences'].append(cur_sent)
@@ -117,7 +117,7 @@ def read_conll_file(data, path, ner_path=None):
 
             while True:
                 try:
-                    cur_conll_m = conll_doc['mention'][cur_conll_m_id]
+                    cur_conll_m = conll_doc['mentions'][cur_conll_m_id]
                     cur_conll_mention = ' '.join(
                         conll_doc['sentences'][cur_conll_m['sent_id']][cur_conll_m['start']:cur_conll_m['end']])
                 except:
@@ -164,7 +164,7 @@ def find_coref(ment, ment_list, person_names):
 
     return coref
 
-
+# 如果上下文出现过人名，则候选实体大几率选择人名
 def with_coref(dataset, person_names):
     for data_name, content in dataset.items():
         for cur_m in content:
@@ -208,6 +208,7 @@ class CoNLLDataset:
         with_coref(self.wikipedia, person_names)
 
         print('load conll')
+        # 将conll添加到数据中
         read_conll_file(self.train, conll_path + '/AIDA/aida_train.txt')
         read_conll_file(self.testA, conll_path + '/AIDA/testa_testb_aggregate_original',
                         ner_path=conll_path + '/AIDA/testa.ner')

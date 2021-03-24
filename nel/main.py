@@ -192,3 +192,29 @@ if __name__ == "__main__":
     if args.mode == 'prerank':
         conll = D.CoNLLDataset(datadir, person_path, conll_path)
 
+        if args.filelist is not None:
+            if args.multi_instance:
+                conll.train = {}
+            with open(args.filelist, 'r') as flist:
+                for fname in flist:
+                    fname = fname.strip()
+                    print('load file from', fname)
+                    conll_path = fname
+                    cands_path = conll_path + '.csv'
+                    data = D.CoNLLDataset.load_file(conll_path, cands_path, person_path)
+                    print('#docs', len(data))
+                    conll.train = {**conll.train, **data}
+                    if len(conll.train) > args.n_docs:
+                        break
+
+        conll.train = dict(list(conll.train.items())[:min(args.n_docs, len(conll.train))])
+        print(len(conll.train))
+
+        all_datasets = [['train', conll.train, None],
+                        ['aida-A', conll.testA, None],
+                        ['aida-B', conll.testB, None],
+                        ['msnbc', conll.msnbc, None],
+                        ['aquaint', conll.aquaint, None],
+                        ['ace2004', conll.ace2004, None],
+                        ['clueweb', conll.clueweb, None],
+                        ['wikipedia', conll.wikipedia, None]]
