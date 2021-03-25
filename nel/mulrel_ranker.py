@@ -17,8 +17,8 @@ class MulRelRanker(LocalCtxAttRanker):
         super(MulRelRanker, self).__init__(config)
         self.inference = config.get('inference','LBP') # LBP or star
         self.df = config.get('df',0.5) # damping factor  用来调节收敛设置的参数
-        self.n_loops = config['n_loops',10]
-        self.ent_top_n = config['ent_top_n',6]
+        self.n_loops = config.get('n_loops',10)
+        self.ent_top_n = config.get('ent_top_n',6)
 
         self.dr = config['dr']
         self.ew_hid_dims = self.emb_dims

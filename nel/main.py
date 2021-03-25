@@ -114,7 +114,7 @@ parser.add_argument("--inference", type=str,
 parser.add_argument("--df", type=float,  # for LBP
                     help="dampling factor (for LBP)",
                     default=0.5)
-parser.add_argument("--ent_loops", type=int,  # for LBP
+parser.add_argument("--n_loops", type=int,  # for LBP
                     help="number of LBP loops",
                     default=10)
 parser.add_argument("--ent_top_n", type=int,  # for star
@@ -167,10 +167,10 @@ if __name__ == "__main__":
               'uniform_att': args.uniform_att,
               'args': args}
 
-    if args.mode == 'prerank':
-        print('load entity net from', datadir + '/../entity_net.dat')
-        entity_net = pickle.load(open(datadir + '/../entity_net.dat', 'rb'))
-        config['ent_net'] = entity_net
+    # if args.mode == 'prerank':
+    #     print('load entity net from', datadir + '/../entity_net.dat')
+    #     entity_net = pickle.load(open(datadir + '/../entity_net.dat', 'rb'))
+    #     config['ent_net'] = entity_net
 
     if args.multi_instance or args.semisup:
         config['n_negs'] = args.n_negs
@@ -218,3 +218,8 @@ if __name__ == "__main__":
                         ['ace2004', conll.ace2004, None],
                         ['clueweb', conll.clueweb, None],
                         ['wikipedia', conll.wikipedia, None]]
+
+        for dataset in all_datasets:
+            name, data = dataset[0], dataset[1]
+            print('prerank', name)
+            data = ranker.get_data_items(data, predict=False if name == 'train' else True)
