@@ -92,6 +92,26 @@ class EDRanker:
                 # rank the candidates by ntee scores
                 lctx_ids = [m['context'][0][max(len(m['contenxt'][0]) - self.args.prerank_ctx_window // 2, 0):]
                             for m in content]
+                rctx_ids = [m['context'][1][:min(len(m['context'][1]), self.args.prerank_ctx_window // 2)]
+                            for m in content]
+                ment_ids = [[] for m in content]
+                token_ids = [l + m + r if len(l) + len(m) + len(r) > 0 else [self.prerank_model.word_voca.unk_id]
+                             for l, m, r in zip(lctx_ids, ment_ids, rctx_ids)]
+                token_ids_len = [len(a) for a in token_ids]
+
+                entity_ids = [m['cands'] for m in content]
+                entity_ids = Variable(torch.LongTensor(entity_ids).cuda())
+
+                entity_mask = [m['mask'] for m in content]
+                entity_mask = Variable(torch.FloatTensor(entity_mask).cuda())
+
+                token_ids, token_offsets = utils.flatten_list_of_lists(token_ids)
+                token_offsets = Variable(torch.LongTensor(token_offsets).cuda())
+                token_ids = Variable(torch.LongTensor(token_ids).cuda())
+
+                scores,sent_vecs = self.prerank_model.forward(token_ids,token_offsets,entity_ids,use_sum=True,return_sent_vecs=True)
+                scores = (scores * entity_mask).add_((entity_mask -1).mul_(1e10))
+
 
     def get_data_items(self, dataset, predict=False):
         data = []
@@ -124,7 +144,7 @@ class EDRanker:
                     true_pos = -1
                 # 选择前 30个候选实体
                 named_cands = named_cands[:min(self.args.n_cands_before_rank, len(named_cands))]
-                p_e_m = p_e_m[:min(self.args.n_cands_before_rank,len(p_e_m))]
+                p_e_m = p_e_m[:min(self.args.n_cands_before_rank, len(p_e_m))]
 
                 if true_pos >= len(named_cands):
                     if not predict:
@@ -141,13 +161,13 @@ class EDRanker:
                 elif len(cands) < self.args.n_cands_before_rank:
                     cands += [self.model.entity_voca.unk_id] * (self.args.n_cands_before_rank - len(cands))
                     named_cands += [Vocabulary.unk_token] * (self.args.n_cands_before_rank - len(named_cands))
-                    p_e_m += [1e-8]*(self.args.n_cands_before_rank - len(p_e_m))
+                    p_e_m += [1e-8] * (self.args.n_cands_before_rank - len(p_e_m))
                     mask += [0.] * (self.args.n_cands_before_rank - len(mask))
 
                 lctx = m['context'][0].strip().split()
                 lctx_ids = [self.prerank_model.word_voca.get_id(t) for t in lctx if utils.is_important_word(t)]
-                lctx_ids = [tid for tid in lctx_ids if tid !=self.prerank_model.word_voca.unk_id]
-                lctx_ids = lctx_ids[max(0,len(lctx_ids)-self.args.ctx_window//2):]
+                lctx_ids = [tid for tid in lctx_ids if tid != self.prerank_model.word_voca.unk_id]
+                lctx_ids = lctx_ids[max(0, len(lctx_ids) - self.args.ctx_window // 2):]
 
                 rctx = m['context'][1].strip().split()
                 rctx_ids = [self.prerank_model.word_voca.get_id(t) for t in rctx if utils.is_important_word(t)]
@@ -159,3 +179,52 @@ class EDRanker:
                 ment_ids = [tid for tid in ment_ids if tid != self.prerank_model.word_voca.unk_id]
 
                 m['sent'] = ' '.join(lctx + rctx)
+
+                # secondary local context (for computing relation scores) (计算相关性分数)
+                if conll_doc is not None:
+                    conll_m = m['conll_m']
+                    sent = conll_doc['sentences'][conll_m['sent_id']]
+                    start = conll_m['start']
+                    end = conll_m['end']
+
+                    snd_lctx = [self.model.snd_word_voca.get_id(t)
+                                for t in sent[max(0, start - self.args.snd_local_ctx_window // 2):start]]
+                    snd_rctx = [self.model.snd_word_voca.get_id(t)
+                                for t in sent[end:min(len(sent), end + self.args.snd_local_ctx_window // 2)]]
+                    snd_ment = [self.model.snd_word_voca.get_id(t)
+                                for t in sent[start:end]]
+
+                    if len(snd_lctx) == 0:
+                        snd_lctx = [self.model.snd_word_voca.unk_id]
+                    if len(snd_rctx) == 0:
+                        snd_rctx = [self.model.snd_word_voca.unk_id]
+                    if len(snd_ment) == 0:
+                        snd_ment = [self.model.snd_word_voca.unk_id]
+                else:
+                    snd_lctx = [self.model.snd_word_voca.unk_id]
+                    snd_rctx = [self.model.snd_word_voca.unk_id]
+                    snd_ment = [self.model.snd_word_voca.unk_id]
+
+                items.append({'context': (lctx_ids, rctx_ids),
+                              'snd_ctx': (snd_lctx, snd_rctx),
+                              'ment_ids': ment_ids,
+                              'snd_ment': snd_ment,
+                              'cands': cands,
+                              'named_cands': named_cands,
+                              'p_e_m': p_e_m,
+                              'mask': mask,
+                              'true_pos': true_pos,
+                              'doc_name': doc_name,
+                              'raw': m})
+
+            if len(items) > 0:
+                # note: this shouldn't affect the order of prediction because we use doc_name to add predicted entities,
+                # and we don't shuffle the data for prediction
+                max_len = 50
+                if len(items) > max_len:
+                    print(len(items))
+                    for k in range(0, len(items), max_len):
+                        data.append(items[k:min(len(items), k + max_len)])
+                else:
+                    data.append(items)
+        return self.prerank(data, predict)
