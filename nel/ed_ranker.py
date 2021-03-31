@@ -43,10 +43,10 @@ class EDRanker:
         self.args = config['args']
 
         if self.args.mode == 'prerank':
-            # self.ent_net = config['ent_net']
+            self.ent_net = config['ent_net']
             print('prerank model')
             self.prerank_model = ntee.NTEE(config)
-            # self.prerank_model.cuda()
+            self.prerank_model.cuda()
 
         print('main model')
         if self.args.mode in {'eval', 'ed'}:
@@ -69,7 +69,7 @@ class EDRanker:
                 config['oracle'] = False
                 self.model = ModelClass(config)
 
-            # self.model.cuda()
+            self.model.cuda()
 
     def prerank(self, dataset, predict=False):
         new_dataset = []
@@ -133,8 +133,121 @@ class EDRanker:
 
             # select candidates : mix between keep_ctx_ent best candidates (ntee scores) with
             # keep_p_e_m best candidates (p_e_m scores)
+            for i, m in enumerate(content):
+                sm = {'cands': [],
+                      'named_cands': [],
+                      'p_e_m': [],
+                      'mask': [],
+                      'true_pos': -1}
+                m['selected_ cands'] = sm
+                m['neg_cands'] = neg_cands[i, :]
 
+                selected = set(top_pos[i])
+                idx = 0
+                while len(selected) < self.args.keep_ctx_ent + self.args.keep_p_e_m:
+                    if idx not in selected:
+                        selected.add(idx)
+                    idx += 1
 
+                selected = sorted(list(selected))
+                for idx in selected:
+                    sm['cands'].append(m['cands'][idx])
+                    sm['named_cands'].append(m['name_cands'][idx])
+                    sm['p_e_m'].append(m['p_e_m'][idx])
+                    sm['mask'].append(m['mask'][idx])
+                    if idx == m['true_pos']:
+                        sm['true_pos'] = len(sm['cands']) - 1
+
+                if not predict and not (self.args.multi_instance or self.args.semisup):
+                    if sm['true_pos'] == -1:
+                        continue
+                        # this insertion only makes the performance worse (why???)
+                        # sm['true_pos'] = 0
+                        # sm['cands'][0] = m['cands'][m['true_pos']]
+                        # sm['named_cands'][0] = m['named_cands'][m['true_pos']]
+                        # sm['p_e_m'][0] = m['p_e_m'][m['true_pos']]
+                        # sm['mask'][0] = m['mask'][m['true_pos']]
+                items.append(m)
+                if sm['true_pos'] >= 0:
+                    has_gold += 1
+                total += 1
+
+                # if predict:
+                    # only for oracle model, not used for eval
+                    # if sm['true_pos'] == -1:
+                    #     sm['true_pos'] = 0  # a fake gold, happens only 2%, but avoid the non-gold
+            if len(items) > 0:
+                if len(items) > 1:
+                    c, l, lc, tc = self.get_p_e_ent_net(items)
+                    correct += c
+                    larger_than_x += l
+                    larger_than_x_correct += lc
+                    total_cands += tc
+
+                if (not predict) and (not self.args.multi_instance) and (not self.args.semisup):
+                    filtered_items = []
+                    for m in items:
+                        if m['selected_cands']['true_pos'] >= 0:
+                            filtered_items.append(m)
+                else:
+                    filtered_items = items
+                new_dataset.append(filtered_items)
+        try:
+            print('recall',has_gold/total)
+        except:
+            pass
+
+        if True:  # not predict
+            try:
+                print('correct',correct,correct/total)
+                print('larger_than_x    ',larger_than_x,'larger_than_x_correct  ',larger_than_x_correct,'larger_than_x_correct/larger_than_x  ',larger_than_x_correct/larger_than_x)
+            except:
+                pass
+
+        print('----------------------------------')
+        return new_dataset
+
+    def get_p_e_ent_net(self, doc):
+        eps = -1e3
+
+        entity_ids = [m['selected_cands']['cands'] for m in doc]
+        n_ments = len(entity_ids)
+        n_cands = len(entity_ids[0])
+
+        def dist(net, u, v):
+            w = 0
+            if u in net:
+                w += net[u].get(v, 0)
+            if v in net:
+                w += net[v].get(u, 0)
+            return w if w > 0 else eps
+
+        p_e_ent_net = np.ones([n_ments, n_cands, n_ments, n_cands]) * (-1e10)
+        for mi, mj in product(range(n_ments), range(n_ments)):
+            if mi == mj:
+                continue
+
+            for i, j in product(range(n_cands), range(n_cands)):
+                ei = entity_ids[mi][i]
+                ej = entity_ids[mj][j]
+                if ei != self.model.entity_voca.unk_id and ej != self.model.entity_voca.unk_id:
+                    p_e_ent_net[mi, i, mj, j] = dist(self.ent_net, ei, ej)
+
+        # find scores using LBP
+        prev_msgs = torch.zeros(n_ments, n_cands, n_ments).cuda()
+        ent_ent_scores = torch.Tensor(p_e_ent_net).cuda()
+        local_ent_scores = torch.Tensor([m['selected_cands']['p_e_m'] for m in doc]).cuda()
+        df = 0.3
+        mask = 1 - torch.eye(n_ments).cuda()
+        for _ in range(15):
+            ent_ent_votes = ent_ent_scores + local_ent_scores * 0 + \
+                            torch.sum(prev_msgs.view(1, n_ments, n_cands, n_ments) * mask.view(n_ments, 1, 1, n_ments),
+                                      dim=3).view(n_ments, 1, n_ments, n_cands)
+            msgs, _ = torch.max(ent_ent_votes, dim=3)
+            msgs = (F.softmax(Variable(msgs), dim=1).data.mul_(df) + prev_msgs.exp_().mul_(1 - df)).log_()
+            prev_msgs = msgs
+
+        # compute marginal belief
 
     def get_data_items(self, dataset, predict=False):
         data = []
