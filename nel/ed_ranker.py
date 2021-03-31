@@ -109,8 +109,31 @@ class EDRanker:
                 token_offsets = Variable(torch.LongTensor(token_offsets).cuda())
                 token_ids = Variable(torch.LongTensor(token_ids).cuda())
 
-                scores,sent_vecs = self.prerank_model.forward(token_ids,token_offsets,entity_ids,use_sum=True,return_sent_vecs=True)
-                scores = (scores * entity_mask).add_((entity_mask -1).mul_(1e10))
+                scores, sent_vecs = self.prerank_model.forward(token_ids, token_offsets, entity_ids, use_sum=True,
+                                                               return_sent_vecs=True)
+                scores = (scores * entity_mask).add_((entity_mask - 1).mul_(1e10))
+
+                if self.args.keep_ctx_ent > 0:
+                    top_scores, top_pos = torch.topk(scores, dim=1, k=self.args.keep_ctx_ent)
+                    top_scores = top_scores.data.cpu().numpy()
+                    top_pos = top_pos.data.cpu().numpy()
+
+                else:
+                    top_scores = None
+                    top_pos = [[]] * len(content)
+
+                # compute distribution for sampling negatives
+                probs = F.softmax(torch.matmul(sent_vecs, self.prerank_model.entity_embeddings.weight.t()), dim=1)
+                _, neg_cands = torch.topk(probs, dim=1, k=1000)
+                neg_cands = neg_cands.cpu().numpy()
+
+            else:
+                top_scores = None
+                top_pos = [[]] * len(content)
+
+            # select candidates : mix between keep_ctx_ent best candidates (ntee scores) with
+            # keep_p_e_m best candidates (p_e_m scores)
+
 
 
     def get_data_items(self, dataset, predict=False):

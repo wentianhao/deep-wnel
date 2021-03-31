@@ -176,10 +176,10 @@ if __name__ == "__main__":
               'uniform_att': args.uniform_att,
               'args': args}
 
-    # if args.mode == 'prerank':
-    #     print('load entity net from', datadir + '/../entity_net.dat')
-    #     entity_net = pickle.load(open(datadir + '/../entity_net.dat', 'rb'))
-    #     config['ent_net'] = entity_net
+    if args.mode == 'prerank':
+        print('load entity net from', datadir + '/../entity_net.dat')
+        entity_net = pickle.load(open(datadir + '/../entity_net.dat', 'rb'))
+        config['ent_net'] = entity_net
 
     if args.multi_instance or args.semisup:
         config['n_negs'] = args.n_negs
