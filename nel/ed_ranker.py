@@ -50,12 +50,12 @@ class EDRanker:
 
         print('main model')
         if self.args.mode in {'eval', 'ed'}:
-            print('try loading model from', self.args.mode_path)
-            self.model = load_model(self.args.mode_path, ModelClass)
+            print('try loading model from', self.args.model_path)
+            self.model = load_model(self.args.model_path, ModelClass)
         else:
             try:
-                print('try loading model from', self.args.mode_path)
-                self.model = load_model(self.args.mode_path, ModelClass)
+                print('try loading model from', self.args.model_path)
+                self.model = load_model(self.args.model_path, ModelClass)
             except:
                 print('create new model')
                 if config['mulrel_type'] == 'rel-norm':
@@ -84,13 +84,13 @@ class EDRanker:
 
         for count, content in enumerate(dataset):
             if count % 1000 == 0:
-                print(count, end='\r')
+                print("ed_ranker    count:", count, end='\r')
 
             items = []
 
             if self.args.keep_ctx_ent > 0:
                 # rank the candidates by ntee scores
-                lctx_ids = [m['context'][0][max(len(m['contenxt'][0]) - self.args.prerank_ctx_window // 2, 0):]
+                lctx_ids = [m['context'][0][max(len(m['context'][0]) - self.args.prerank_ctx_window // 2, 0):]
                             for m in content]
                 rctx_ids = [m['context'][1][:min(len(m['context'][1]), self.args.prerank_ctx_window // 2)]
                             for m in content]
@@ -115,9 +115,8 @@ class EDRanker:
 
                 if self.args.keep_ctx_ent > 0:
                     top_scores, top_pos = torch.topk(scores, dim=1, k=self.args.keep_ctx_ent)
-                    top_scores = top_scores.data.cpu().numpy()
+                    top_scores = top_scores.data.cpu().numpy() / np.array(token_ids_len).reshape(-1, 1)
                     top_pos = top_pos.data.cpu().numpy()
-
                 else:
                     top_scores = None
                     top_pos = [[]] * len(content)
@@ -125,7 +124,7 @@ class EDRanker:
                 # compute distribution for sampling negatives
                 probs = F.softmax(torch.matmul(sent_vecs, self.prerank_model.entity_embeddings.weight.t()), dim=1)
                 _, neg_cands = torch.topk(probs, dim=1, k=1000)
-                neg_cands = neg_cands.cpu().numpy()
+                neg_cands = neg_cands.data.cpu().numpy()
 
             else:
                 top_scores = None
@@ -139,7 +138,7 @@ class EDRanker:
                       'p_e_m': [],
                       'mask': [],
                       'true_pos': -1}
-                m['selected_ cands'] = sm
+                m['selected_cands'] = sm
                 m['neg_cands'] = neg_cands[i, :]
 
                 selected = set(top_pos[i])
@@ -152,7 +151,7 @@ class EDRanker:
                 selected = sorted(list(selected))
                 for idx in selected:
                     sm['cands'].append(m['cands'][idx])
-                    sm['named_cands'].append(m['name_cands'][idx])
+                    sm['named_cands'].append(m['named_cands'][idx])
                     sm['p_e_m'].append(m['p_e_m'][idx])
                     sm['mask'].append(m['mask'][idx])
                     if idx == m['true_pos']:
@@ -173,9 +172,9 @@ class EDRanker:
                 total += 1
 
                 # if predict:
-                    # only for oracle model, not used for eval
-                    # if sm['true_pos'] == -1:
-                    #     sm['true_pos'] = 0  # a fake gold, happens only 2%, but avoid the non-gold
+                # only for oracle model, not used for eval
+                # if sm['true_pos'] == -1:
+                #     sm['true_pos'] = 0  # a fake gold, happens only 2%, but avoid the non-gold
             if len(items) > 0:
                 if len(items) > 1:
                     c, l, lc, tc = self.get_p_e_ent_net(items)
@@ -193,14 +192,15 @@ class EDRanker:
                     filtered_items = items
                 new_dataset.append(filtered_items)
         try:
-            print('recall',has_gold/total)
+            print('recall', has_gold / total)
         except:
             pass
 
         if True:  # not predict
             try:
-                print('correct',correct,correct/total)
-                print('larger_than_x    ',larger_than_x,'larger_than_x_correct  ',larger_than_x_correct,'larger_than_x_correct/larger_than_x  ',larger_than_x_correct/larger_than_x)
+                print('correct', correct, correct / total)
+                print('larger_than_x    ', larger_than_x, 'larger_than_x_correct  ', larger_than_x_correct,
+                      'larger_than_x_correct/larger_than_x  ', larger_than_x_correct / larger_than_x)
             except:
                 pass
 
@@ -248,6 +248,50 @@ class EDRanker:
             prev_msgs = msgs
 
         # compute marginal belief
+        ent_scores = local_ent_scores * 0 + torch.sum(msgs * mask.view(n_ments, 1, n_ments), dim=2)
+        ent_scores = F.softmax(Variable(ent_scores), dim=1).cpu().data
+
+        correct = 0
+        larger_than_x = 0
+        larger_than_x_correct = 0
+        total_cands = 0
+
+        _, predict = torch.topk(ent_scores, k=min(100, len(doc[0]['selected_cands']['cands'])), dim=1)
+
+        for i in range(n_ments):
+            m = doc[i]
+            true_pos = m['selected_cands']['true_pos']
+            th = ent_scores[i, predict[i, -1]]
+            mark = '*'
+
+            if ent_scores[i, predict[i, 0]] > 0.5:
+                larger_than_x += 1
+                if true_pos == predict[i, 0]:
+                    larger_than_x_correct += 1
+
+            sm = {'true_pos': -1}
+            selected_ids = []
+            for k in list(predict[i]):
+                selected_ids.append(k)
+                if true_pos == k:
+                    sm['true_pos'] = len(selected_ids) - 1
+                    correct += 1
+                    mark = '+'
+
+            # print(mask, ent_scores[i][true_pos], list(ent_scores[i]))
+            total_cands += len(selected_ids)
+
+            n_pads = len(m['selected_cands']['cands']) - len(selected_ids)
+            sm['cands'] = [m['selected_cands']['cands'][k] for k in selected_ids] + [
+                self.model.entity_voca.unk_id] * n_pads
+            sm['named_cands'] = [m['selected_cands']['named_cands'][k] for k in selected_ids] + [
+                self.model.entity_voca.unk_token] * n_pads
+            sm['p_e_m'] = [m['selected_cands']['p_e_m'][k] for k in selected_ids] + [0.] * n_pads
+            sm['p_e_ent_net'] = [ent_scores[i, k] for k in selected_ids] + [0.] * n_pads
+            sm['mask'] = [m['selected_cands']['mask'][k] for k in selected_ids] + [0.] * n_pads
+            m['selected_cands'] = sm
+
+        return correct, larger_than_x, larger_than_x_correct, total_cands
 
     def get_data_items(self, dataset, predict=False):
         data = []
@@ -257,14 +301,14 @@ class EDRanker:
         for doc_name, content in dataset.items():
             count += 1
             if count % 1000 == 0:
-                print(count, end='\r')
+                print("count:", count, end='\r')
 
             items = []
             conll_doc = content[0].get('conll_doc', None)
 
             for m in content:
                 try:
-                    # 筛选 候选实体 与 Wikilink 挂钩的
+                    # 筛选 候选实体 与 Wikilink 挂钩的,相当于筛选出在Wiki库里的
                     named_cands = [c[0] for c in m[cand_source] if
                                    (wiki_prefix + c[0]) in self.model.entity_voca.word2id]
                     p_e_m = [min(1., max(1e-3, c[1])) for c in m[cand_source]]
@@ -358,9 +402,197 @@ class EDRanker:
                 # and we don't shuffle the data for prediction
                 max_len = 50
                 if len(items) > max_len:
-                    print(len(items))
+                    print("#items:", len(items))
                     for k in range(0, len(items), max_len):
                         data.append(items[k:min(len(items), k + max_len)])
                 else:
                     data.append(items)
         return self.prerank(data, predict)
+
+    def minibatch2input(self, batch, predict=False, topk=None):
+        if topk == None:
+            topk = 10000
+        topk = min(topk, len(batch[0]['selected_cands']['cands']))
+
+        n_ments = len(batch)
+        # only uisng negative samples when the document doesn't have any supervision (i.e. not CoNLL)
+        tps = [m['selected_cands']['true_pos'] >= 0 for m in batch]
+        if not predict and (self.args.multi_instance or self.args.semisup) and not np.any(tps):
+            n_negs = self.args.n_negs
+        else:
+            n_negs = 0
+
+        # convert data items to pytorch inputs
+        token_ids = [m['context'][0] + m['context'][1]
+                     if len(m['context'][0]) + len(m['context'][1]) > 0
+                     else [self.model.word_voca.unk_id]
+                     for m in batch]
+        s_ltoken_ids = [m['snd_ctx'][0] for m in batch]
+        s_rtoken_ids = [m['snd_ctx'][1] for m in batch]
+        s_mtoken_ids = [m['snd_ment'] for m in batch]
+
+        entity_ids = torch.LongTensor([m['selected_cands']['cands'][:topk] for m in batch])
+        p_e_m = torch.FloatTensor([m['selected_cands']['p_e_m'][:topk] for m in batch])
+        entity_mask = torch.FloatTensor([m['selected_cands']['mask'][:topk] for m in batch])
+        true_pos = torch.LongTensor(
+            [m['selected_cands']['true_pos'] if m['selected_cands']['true_pos'] < topk else -1 for m in batch])
+        p_e_ent_net = torch.FloatTensor([m['selected_cands']['p_e_ent_net'][:topk] for m in batch]) if len(
+            batch) > 1 else torch.zeros(1, entity_ids.shape[1])
+
+        if n_negs > 0:
+            # add n_negs negative samples at the beginning of lists
+            def ent_neg_sample(neg_cands_p_e_m, exclusive):
+                # 随机抽取 [0,len(neg_cands_p_e_m)) ,生成 一维数组 长度为 n_negs*10
+                sample_ids = np.random.choice(len(neg_cands_p_e_m), n_negs * 10)
+                all_samples = list(zip(np.array([s[0] for s in neg_cands_p_e_m])[sample_ids].astype(int),
+                                       np.array(s[1] for s in neg_cands_p_e_m)[sample_ids]))
+                exclusive = set(exclusive)
+                samples = []
+                for s in all_samples:
+                    if s[0] not in exclusive:
+                        samples.append(s)
+
+                if len(samples) < n_negs:
+                    samples = samples + [(self.model.entity_voca.unk_id, 1e-3)] * (n_negs - len(samples))
+                else:
+                    shuffle(samples)
+                    samples = samples[:n_negs]
+                return np.array([s[0] for s in samples]), np.array([s[1] for s in samples])
+
+            neg_cands_p_e_m = [list(zip(list(m['cands']), list(m['p_e_m']))) + \
+                               (list(zip(list(m['neg_cands'], [1e-3] * len(m['neg_cands'])))) if len(
+                                   m['cands']) <= topk else [])
+                               for m in batch]
+            neg_cands_p_e_m = [ent_neg_sample(si, entity_ids_i) for si, entity_ids_i in
+                               zip(neg_cands_p_e_m, entity_ids.numpy())]
+            neg_entity_ids = torch.Tensor([si[0].astype(float) for si in neg_cands_p_e_m]).long()
+            neg_p_e_m = torch.Tensor([si[1].astype(float) for si in neg_cands_p_e_m])
+
+            neg_entity_mask = torch.ones(n_ments, n_negs)
+            entity_ids = torch.cat([neg_entity_ids, entity_ids], dim=1)
+            entity_mask = torch.cat([neg_entity_mask, entity_mask], dim=1)
+            p_e_m = torch.cat([neg_p_e_m, p_e_m], dim=1)
+            true_pos = true_pos.add_(n_negs)
+
+        entity_ids = Variable(entity_ids.cuda())
+        true_pos = Variable(true_pos.cuda())
+        p_e_m = Variable(p_e_m.cuda())
+        p_e_ent_net = Variable(p_e_ent_net.cuda())
+        entity_mask = Variable(entity_mask.cuda())
+
+        token_ids, token_mask = utils.make_equal_len(token_ids, self.model.word_voca.unk_id)
+        s_ltoken_ids, s_ltoken_mask = utils.make_equal_len(s_ltoken_ids, self.model.snd_word_voca.unk_id,
+                                                           to_right=False)
+        s_rtoken_ids, s_rtoken_mask = utils.make_equal_len(s_rtoken_ids, self.model.snd_word_voca.unk_id)
+        s_rtoken_ids = [l[::-1] for l in s_rtoken_ids]
+        s_rtoken_mask = [l[::-1] for l in s_rtoken_mask]
+        s_mtoken_ids, s_mtoken_mask = utils.make_equal_len(s_mtoken_ids, self.model.snd_word_voca.unk_id)
+
+        token_ids = Variable(torch.LongTensor(token_ids).cuda())
+        token_mask = Variable(torch.FloatTensor(token_mask).cuda())
+
+        s_ltoken_ids = Variable(torch.LongTensor(s_ltoken_ids).cuda())
+        s_ltoken_mask = Variable(torch.FloatTensor(s_ltoken_mask).cuda())
+        s_rtoken_ids = Variable(torch.LongTensor(s_rtoken_ids).cuda())
+        s_rtoken_mask = Variable(torch.FloatTensor(s_rtoken_mask).cuda())
+        s_mtoken_ids = Variable(torch.LongTensor(s_mtoken_ids).cuda())
+        s_mtoken_mask = Variable(torch.FloatTensor(s_mtoken_mask).cuda())
+
+        ret = {'token_ids': token_ids,
+               'token_mask': token_mask,
+               'entity_ids': entity_ids,
+               'entity_mask': entity_mask,
+               'p_e_m': p_e_m,
+               'p_e_ent_net': p_e_ent_net,
+               'true_pos': true_pos,
+               's_ltoken_ids': s_ltoken_ids,
+               's_ltoken_mask': s_ltoken_mask,
+               's_rtoken_ids': s_rtoken_ids,
+               's_rtoken_mask': s_rtoken_mask,
+               's_mtoken_ids': s_mtoken_ids,
+               's_mtoken_mask': s_mtoken_mask,
+               'n_negs': n_negs}
+        return ret
+
+    def train(self, org_train_dataset, org_dev_datasets, config, preranked_train=None, preranked_dev=None):
+        print('extracting training data')
+        if preranked_train is None:
+            train_dataset = self.get_data_items(org_train_dataset, predict=False)
+        else:
+            train_dataset = preranked_train
+        print('#train docs', len(train_dataset))
+
+        if preranked_dev is None:
+            dev_datasets = []
+            for dname, data in org_dev_datasets:
+                dev_datasets.append(dname, self.get_data_items(data, predict=True))
+                print(dname, '#dev docs', len(dev_datasets[-1][1]))
+        else:
+            dev_datasets = preranked_dev
+
+        print('creating optimizer')
+        # 构造一个优化器对象optimizer
+        optimizer = optim.Adam([p for p in self.model.parameters() if p.requires_grad], lr=config['lr'])
+        best_f1 = -1
+        not_better_count = 0
+        is_counting = False
+        stop = False
+        eval_after_n_epochs = self.args.eval_after_n_epochs
+        final_result_str = ''
+
+        print('total training items', len(train_dataset))
+        n_updates = 0
+        if config['multi_instance']:
+            n_updates_to_eval = 1000
+            n_updates_to_stop = 60000
+            f1_threshold = 0.875
+            f1_start_couting = 0.87
+        elif config['semisup']:
+            n_updates_to_eval = 5000
+            n_update_to_stop = 1e10
+            f1_threshold = 0.86
+            f1_start_couting = 0.86
+        else:  # for supervised learning
+            n_updates_to_eval = 1000
+            n_updates_to_stop = 1000 * self.args.n_epochs
+            f1_threshold = 0.95
+            f1_start_couting = 0.95
+
+        for e in range(config['n_epochs']):
+            shuffle(train_dataset)
+
+            total_loss = 0
+            total = 0
+
+            for dc, batch in enumerate(train_dataset):  # each document is a minibatch
+                self.model.train()
+                optimizer.zero_grad()
+                tps = [m['selected_cands']['true_pos'] >= 0 for m in batch]
+                any_true = np.any(tps)
+
+                if any_true:
+                    inputs = self.minibatch2input(batch)
+                else:
+                    inputs = self.minibatch2input(batch, topk=2)
+
+                if config['semisup']:
+                    if any_true:  # from supervision (i.e CoNLL)
+                        scores = self.model.forward(inputs, gold=inputs['true_pos'].view(-1, 1), inference='LBP')
+                    else:
+                        scores = self.model.forward(inputs, gold=inputs['true_pos'].view(-1, 1), inference='star')
+                else:
+                    scores = self.model.forward(inputs, gold=inputs['true_pos'].view(-1, 1))
+
+                if any_true:
+                    loss = self.model.loss(scores, inputs['true_pos'])
+                else:
+                    loss = self.model.multi_instance_loss(scores, inputs)
+
+                loss.backward()
+                optimizer.step()
+
+                loss = loss.cpu().data.item()
+                total_loss += loss
+
+                if dc % 100 == 0:
+                    print('epoch', e, "%0.2f%%" % (dc / len(train_dataset) * 100), loss, end='\r')

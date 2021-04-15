@@ -195,7 +195,7 @@ if __name__ == "__main__":
     else:
         raise Exception('unknown model class')
 
-    pprint(config)
+    # pprint(config)
     ranker = EDRanker(config=config)
 
     if args.mode == 'prerank':
@@ -215,9 +215,9 @@ if __name__ == "__main__":
                     conll.train = {**conll.train, **data}
                     if len(conll.train) > args.n_docs:
                         break
-
+        print("dict before # conll.train", len(conll.train))
         conll.train = dict(list(conll.train.items())[:min(args.n_docs, len(conll.train))])
-        print(len(conll.train))
+        print("# conll.train", len(conll.train))
 
         all_datasets = [['train', conll.train, None],
                         ['aida-A', conll.testA, None],
@@ -232,3 +232,32 @@ if __name__ == "__main__":
             name, data = dataset[0], dataset[1]
             print('prerank', name)
             data = ranker.get_data_items(data, predict=False if name == 'train' else True)
+            dataset[2] = data
+
+        path = args.preranked_data
+        print('save to all into ', path)
+        with open(path, 'wb') as f:
+            pickle.dump(all_datasets, f)
+
+    elif args.mode == 'train':
+        path = args.preranked_data
+        print('load all datasets from', path)
+        with open(path, 'rb')as f:
+            all_datasets = pickle.load(f)
+            conll_train, preranked_train = all_datasets[0][1], all_datasets[0][2]
+            preranked_train = preranked_train[:min(args.n_docs, len(preranked_train))]
+            shuffle(preranked_train)
+
+            dev_datasets = [(all_datasets[i][0], all_datasets[i][1]) for i in range(1, len(all_datasets))]
+            preranked_dev = [(all_datasets[i][0], all_datasets[i][2]) for i in range(1, len(all_datasets))]
+
+        print('training.......')
+        print('total training', len(preranked_train))
+        config = {'lr': args.learning_rate,
+                  'n_epochs': args.n_epochs,
+                  'multi_instance': args.multi_instance,
+                  'semisup': args.semisup}
+        print('config:')
+        pprint(config)
+        ranker.train(conll_train, dev_datasets, config,
+                     preranked_train=preranked_train, preranked_dev=preranked_dev)

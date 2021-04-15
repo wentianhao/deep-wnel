@@ -70,7 +70,7 @@ def create_ntee_from_compoents(dir_path):
               'word_voca': word_voca,
               'entity_voca': entity_voca,
               'emb_dims': word_embs.shape[1]}
-    print(word_embs.shape, entity_embs.shape)
+    print("word_embs.shape:",word_embs.shape, "entity_embs.shape:",entity_embs.shape)
 
     # create model
     print('create model')

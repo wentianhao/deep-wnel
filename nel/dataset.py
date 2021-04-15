@@ -121,8 +121,8 @@ def read_conll_file(data, path, ner_path=None):
                     cur_conll_mention = ' '.join(
                         conll_doc['sentences'][cur_conll_m['sent_id']][cur_conll_m['start']:cur_conll_m['end']])
                 except:
-                    print(doc_name)
-                    pprint(m)
+                    print("dataset.py doc_name:",doc_name)
+                    pprint("m:",m)
                     raise Exception('wrong!!!')
 
                 r_cm = rmpunc.sub('', cur_conll_mention.lower())

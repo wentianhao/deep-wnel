@@ -63,3 +63,30 @@ class AbstractWordEntity(nn.Module):
             self.entity_embeddings.weight.requires_grad = False
             if 'snd_word_embeddings' in config:
                 self.snd_word_embeddings.weight.requires_grad = False
+
+    def print_weight_norm(self):
+        pass
+
+    def save(self, path, suffix='', save_config=True):
+        torch.save(self.state_dict(), path + '.state_dict' + suffix)
+
+        if save_config:
+            config = {'word_voca': self.word_voca.__dict__,
+                      'entity_voca': self.entity_voca.__dict__}
+            if 'snd_word_voca' in self.__dict__:
+                config['snd_word_voca'] = self.snd_word_voca.__dict__
+
+            for k, v in self.__dict__.items():
+                if not hasattr(v, '__dict__'):
+                    config[k] = v
+
+            with io.open(path + '.config', 'w', encoding='utf8') as f:
+                json.dump(config, f)
+
+    def load_params(self, path, param_names):
+        params = torch.load(path)
+        for pname in param_names:
+            self._parameters[pname].data = params[pname]
+
+    def loss(self, scores, grth):
+        pass
